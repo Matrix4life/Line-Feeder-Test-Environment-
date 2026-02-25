@@ -238,6 +238,8 @@
      * -------------------------------------------------------------------
      **********************************************************************/
     const CONFIG = {
+      ENABLE_MULTI_WAREHOUSE: false, // start with 1; turn on later to manage multiple warehouses
+      DEFAULT_WAREHOUSE_ID: "default",
       ENABLE_SUPABASE: true, // <- set true for real multi-user across devices
       SUPABASE_URL: "https://hzcgdtsyamejgkahtqyb.supabase.co",
       SUPABASE_ANON_KEY: "sb_publishable_6bgN37a4HK5vgjX1yyHJlg_GUABLqfl",
@@ -364,6 +366,9 @@
       const useSupabase = CONFIG.ENABLE_SUPABASE && CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY && window.supabase;
       const supabaseClient = useSupabase ? window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY) : null;
 
+      const getWarehouseId() = warehouseId || CONFIG.DEFAULT_WAREHOUSE_ID || \"default\";
+
+
       let unsub = null;
 
       const localLoad = async ()=> {
@@ -379,6 +384,7 @@
 
       const supaNormalize = (r)=> ({
         id: Number(r.id),
+        warehouseId: r.warehouse_id || getWarehouseId(),
         item: r.item,
         room: r.room,
         qty: Number(r.qty||0),
@@ -403,6 +409,7 @@
 
       const supaDenormalize = (r)=> ({
         id: Number(r.id),
+        warehouse_id: r.warehouseId || getWarehouseId(),
         item: r.item,
         room: r.room,
         qty: Number(r.qty||0),
@@ -494,13 +501,13 @@
             const rows = await localLoad();
             return await localSave(rows.filter(r => r.status !== "completed"));
           }
-          const { error } = await supabaseClient.from("warehouse_requests").delete().eq("status", "completed");
+          const { error } = await supabaseClient.from("warehouse_requests").delete().eq("warehouse_id", getWarehouseId()).eq("status", "completed");
           if (error) throw error;
           return true;
         },
         async clearAll() {
           if (!useSupabase) return await localSave([]);
-          const { error } = await supabaseClient.from("warehouse_requests").delete().neq("id", -1);
+          const { error } = await supabaseClient.from("warehouse_requests").delete().eq("warehouse_id", getWarehouseId()).neq("id", -1);
           if (error) throw error;
           return true;
         },
@@ -513,7 +520,7 @@
           const { data, error } = await supabaseClient.from("warehouse_users").select("*").order("created_at");
           if (error) throw error;
           return (data || []).map(u => ({
-            id: u.id, name: u.name, role: u.role, shift: u.shift || null,
+            id: u.id, warehouseId: u.warehouse_id || getWarehouseId(), name: u.name, role: u.role, shift: u.shift || null,
             createdAt: u.created_at, createdBy: u.created_by || "system"
           }));
         },
@@ -527,7 +534,7 @@
             return next;
           }
           const { error } = await supabaseClient.from("warehouse_users").upsert({
-            id: user.id, name: user.name, role: user.role, shift: user.shift || null,
+            id: user.id, warehouse_id: user.warehouseId || getWarehouseId(), name: user.name, role: user.role, shift: user.shift || null,
             created_at: user.createdAt, created_by: user.createdBy || "system"
           });
           if (error) throw error;
@@ -540,7 +547,7 @@
             bc?.postMessage({ type:"updated" });
             return true;
           }
-          const { error } = await supabaseClient.from("warehouse_users").delete().eq("id", id);
+          const { error } = await supabaseClient.from("warehouse_users").delete().eq("warehouse_id", getWarehouseId()).eq("id", id);
           if (error) throw error;
           return true;
         },
@@ -553,7 +560,7 @@
           const { data, error } = await supabaseClient.from("warehouse_assignments").select("*").order("assigned_at");
           if (error) throw error;
           return (data || []).map(a => ({
-            id: a.id, userId: a.user_id, userName: a.user_name, userRole: a.user_role,
+            id: a.id, warehouseId: a.warehouse_id || getWarehouseId(), userId: a.user_id, userName: a.user_name, userRole: a.user_role,
             room: a.room, shift: a.shift || null, duration: a.duration,
             startDate: a.start_date, expiresAt: a.expires_at,
             assignedBy: a.assigned_by, assignedAt: a.assigned_at
@@ -569,7 +576,7 @@
             return next;
           }
           const { error } = await supabaseClient.from("warehouse_assignments").upsert({
-            id: assignment.id, user_id: assignment.userId, user_name: assignment.userName,
+            id: assignment.id, warehouse_id: assignment.warehouseId || getWarehouseId(), user_id: assignment.userId, user_name: assignment.userName,
             user_role: assignment.userRole, room: assignment.room, shift: assignment.shift || null,
             duration: assignment.duration, start_date: assignment.startDate,
             expires_at: assignment.expiresAt, assigned_by: assignment.assignedBy,
@@ -585,7 +592,29 @@
             bc?.postMessage({ type:"updated" });
             return true;
           }
-          const { error } = await supabaseClient.from("warehouse_assignments").delete().eq("id", id);
+          const { error } = await supabaseClient.from("warehouse_assignments").delete().eq("warehouse_id", getWarehouseId()).eq("id", id);
+          if (error) throw error;
+          return true;
+        },
+
+        // ── WAREHOUSES (optional, hidden unless enabled) ─────────────────────
+        async loadWarehouses() {
+          if (!useSupabase) {
+            return [{ id: getWarehouseId(), name: "Main Warehouse", active: true }];
+          }
+          const { data, error } = await supabaseClient.from("warehouses").select("*").order("name");
+          if (error) throw error;
+          return (data || []).map(w => ({ id: w.id, name: w.name, active: w.active !== false, createdAt: w.created_at }));
+        },
+        async saveWarehouse(wh) {
+          if (!useSupabase) return true;
+          const payload = {
+            id: wh.id,
+            name: wh.name,
+            active: wh.active !== false,
+            created_at: wh.createdAt || new Date().toISOString()
+          };
+          const { error } = await supabaseClient.from("warehouses").upsert(payload);
           if (error) throw error;
           return true;
         },
@@ -691,7 +720,23 @@
       const [errors, setErrors] = useState({});
       const [successMsg, setSuccessMsg] = useState("");
       const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-      const [connectionMode, setConnectionMode] = useState("local"); // "local" or "supabase"
+      const [connectionMode, setConnectionMode] = useState("local");
+
+      // Warehouse scoping (single warehouse by default; can scale later)
+      const [warehouseId, setWarehouseId] = useState(() => localStorage.getItem("wd_warehouseId") || CONFIG.DEFAULT_WAREHOUSE_ID);
+      useEffect(() => { try { localStorage.setItem("wd_warehouseId", warehouseId || CONFIG.DEFAULT_WAREHOUSE_ID); } catch {} }, [warehouseId]);
+
+      const [warehouses, setWarehouses] = useState([]);
+      const [newWarehouseName, setNewWarehouseName] = useState("");
+
+      useEffect(() => {
+        // When warehouse changes, refresh scoped data
+        if (adapterRef.current) {
+          loadAll();
+          loadUsersAndAssignments();
+        }
+      }, [warehouseId]);
+ // "local" or "supabase"
 
       // ── NOTIFICATION STATE (bell badge + history panel only) ─────────────
       // The actual toast popup is vanilla JS (_showToast) — React state here
@@ -942,6 +987,17 @@
             adapterRef.current = adapter;
             setConnectionMode(adapter.kind);
             await adapter.init();
+          // Load warehouses (single by default; scalable later)
+          try {
+            const whs = await adapter.loadWarehouses();
+            setWarehouses(whs || []);
+            if (Array.isArray(whs) && whs.length > 0) {
+              const cur = warehouseId || CONFIG.DEFAULT_WAREHOUSE_ID;
+              if (!whs.some(w => w.id === cur)) setWarehouseId(whs[0].id);
+            }
+          } catch (e) {
+            // ignore
+          }
             await loadAll();
             await loadUsersAndAssignments();
 
@@ -2659,6 +2715,10 @@ ${sortedCompleted.map(r => {
           );
         }
 
+        // Warehouses manager (hidden unless enabled)
+        const showWarehousesAdmin = CONFIG.ENABLE_MULTI_WAREHOUSE === true;
+
+
         // Room stats helpers
         const now = new Date();
         const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -2745,7 +2805,65 @@ ${sortedCompleted.map(r => {
           <div style={{ minHeight:'100vh', ...bg, padding:'1.5rem', position:'relative', overflow:'hidden' }}>
             <div style={gridOverlay} />
             <div style={{ maxWidth:'1600px', margin:'0 auto', position:'relative', zIndex:1 }}>
-              <TopBar title="Admin Panel" subtitle={`👤 ${userName} (${userRole}) • ${connectionMode === "supabase" ? "Supabase ready" : "Local + kiosk mode"}`} />
+              <TopBar title="Admin Panel" subtitle={`👤 ${userName} (${userRole}) • ${connectionMode === "supabase" ? "Supabase ready" : "Local + kiosk mode"} • WH: ${warehouseId}`} />
+
+              {showWarehousesAdmin && (
+                <div style={{ marginTop:'0.85rem', marginBottom:'1.25rem', padding:'1rem', background:'rgba(0,255,136,0.06)', border:'1px solid rgba(0,255,136,0.25)', borderRadius:'12px' }}>
+                  <div style={{ display:'flex', gap:'0.75rem', flexWrap:'wrap', alignItems:'flex-end', justifyContent:'space-between' }}>
+                    <div style={{ minWidth:240 }}>
+                      <div style={{ color:'#8b9dc3', fontWeight:900, fontSize:'0.75rem', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:'0.35rem' }}>Active Warehouse</div>
+                      <select value={warehouseId} onChange={e=>setWarehouseId(e.target.value)}
+                        style={{ width:'100%', padding:'0.55rem', background:'#0f172a', border:'1px solid #334155', borderRadius:'10px', color:'#e2e8f0', fontWeight:800 }}>
+                        {(warehouses && warehouses.length ? warehouses : [{id: CONFIG.DEFAULT_WAREHOUSE_ID, name:'Main Warehouse'}]).map(w=>(
+                          <option key={w.id} value={w.id}>{w.name} ({w.id})</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div style={{ flex:1, minWidth:260 }}>
+                      <div style={{ color:'#8b9dc3', fontWeight:900, fontSize:'0.75rem', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:'0.35rem' }}>Add Warehouse (name)</div>
+                      <input value={newWarehouseName} onChange={e=>setNewWarehouseName(e.target.value)} placeholder="e.g., Plant 2"
+                        style={{ width:'100%', padding:'0.55rem', background:'#0f172a', border:'1px solid #334155', borderRadius:'10px', color:'#e2e8f0', fontWeight:800 }} />
+                    </div>
+
+                    <div style={{ display:'flex', gap:'0.6rem' }}>
+                      <button onClick={async ()=>{
+                        const name = (newWarehouseName || '').trim();
+                        if (!name) return;
+                        const id = name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'').slice(0,40) || ('wh-' + Math.random().toString(36).slice(2,8));
+                        try {
+                          await adapterRef.current?.saveWarehouse({ id, name, active:true });
+                          const whs = await adapterRef.current?.loadWarehouses();
+                          setWarehouses(whs || []);
+                          setNewWarehouseName('');
+                          setWarehouseId(id);
+                          toast('Warehouse added');
+                        } catch (e) {
+                          toast('Failed to add warehouse');
+                        }
+                      }}
+                        style={{ padding:'0.55rem 1rem', background:'rgba(0,255,136,0.15)', border:'1px solid rgba(0,255,136,0.45)', borderRadius:'10px', color:'#00ff88', fontWeight:900, cursor:'pointer' }}>
+                        + Add
+                      </button>
+
+                      <button onClick={async ()=>{
+                        try {
+                          const whs = await adapterRef.current?.loadWarehouses();
+                          setWarehouses(whs || []);
+                          toast('Warehouses refreshed');
+                        } catch { toast('Refresh failed'); }
+                      }}
+                        style={{ padding:'0.55rem 1rem', background:'rgba(56,189,248,0.12)', border:'1px solid rgba(56,189,248,0.35)', borderRadius:'10px', color:'#38bdf8', fontWeight:900, cursor:'pointer' }}>
+                        Refresh
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop:'0.6rem', color:'#64748b', fontSize:'0.72rem' }}>
+                    Tip: Start with <b>default</b>. When you&apos;re ready, enable multi-warehouse in CONFIG.
+                  </div>
+                </div>
+              )}
 
               {successMsg && (
                 <div style={{ padding:'1rem', background:'rgba(0,255,136,0.15)', border:'1px solid #00ff88', borderRadius:'10px', color:'#00ff88', marginBottom:'1rem', fontWeight:900 }}>✅ {successMsg}</div>
