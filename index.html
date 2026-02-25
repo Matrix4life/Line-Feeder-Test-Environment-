@@ -736,7 +736,7 @@
 
       // Warehouse scoping (single warehouse by default; can scale later)
       const [warehouseId, setWarehouseId] = useState(() => localStorage.getItem("wd_warehouseId") || CONFIG.DEFAULT_WAREHOUSE_ID);
-      const getWarehouseId = () => (localStorage.getItem("wd_warehouseId") || warehouseId || CONFIG.DEFAULT_WAREHOUSE_ID || "default");
+      const getWarehouseId = () => (localStorage.getItem("wd_warehouseId") || CONFIG.DEFAULT_WAREHOUSE_ID || "default");
 
       useEffect(() => { try { localStorage.setItem("wd_warehouseId", warehouseId || CONFIG.DEFAULT_WAREHOUSE_ID); } catch {} }, [warehouseId]);
 
