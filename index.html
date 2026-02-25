@@ -376,11 +376,9 @@
     // ──────────────────────────────────────────────────────────────────────
 
     // Data adapter (LocalStorage OR Supabase)
-    function createAdapter({ onRemoteChange, onChatChange }) {
+    function createAdapter({ onRemoteChange, onChatChange, getWarehouseId }) {
       const useSupabase = CONFIG.ENABLE_SUPABASE && CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY && window.supabase;
       const supabaseClient = useSupabase ? window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY) : null;
-
-      const getWarehouseId = () => warehouseId || CONFIG.DEFAULT_WAREHOUSE_ID || "default";
 
 
       let unsub = null;
@@ -738,6 +736,8 @@
 
       // Warehouse scoping (single warehouse by default; can scale later)
       const [warehouseId, setWarehouseId] = useState(() => localStorage.getItem("wd_warehouseId") || CONFIG.DEFAULT_WAREHOUSE_ID);
+      const getWarehouseId = () => (localStorage.getItem("wd_warehouseId") || warehouseId || CONFIG.DEFAULT_WAREHOUSE_ID || "default");
+
       useEffect(() => { try { localStorage.setItem("wd_warehouseId", warehouseId || CONFIG.DEFAULT_WAREHOUSE_ID); } catch {} }, [warehouseId]);
 
       const [warehouses, setWarehouses] = useState([]);
@@ -996,7 +996,8 @@
             setNotificationsEnabled(await requestNotifyPermission());
             const adapter = createAdapter({
               onRemoteChange: loadAll,
-              onChatChange: () => loadChatMessages(chatChannelRef.current)
+              onChatChange: () => loadChatMessages(chatChannelRef.current),
+              getWarehouseId
             });
             adapterRef.current = adapter;
             setConnectionMode(adapter.kind);
