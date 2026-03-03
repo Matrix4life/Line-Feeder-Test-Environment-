@@ -659,11 +659,13 @@
           if (!useSupabase) {
             try { return JSON.parse(localStorage.getItem("wd_settings_v1") || "{}"); } catch { return {}; }
           }
-          const { data, error } = await supabaseClient.from("warehouse_settings").select("*");
-          if (error) { console.error("loadSettings error:", error); return {}; }
-          const map = {};
-          (data || []).forEach(row => { map[row.key] = row.value; });
-          return map;
+          try {
+            const { data, error } = await supabaseClient.from("warehouse_settings").select("*");
+            if (error) { console.warn("loadSettings:", error.message); return {}; }
+            const map = {};
+            (data || []).forEach(row => { map[row.key] = row.value; });
+            return map;
+          } catch(e) { return {}; }
         },
         async saveSetting(key, value, updatedBy) {
           if (!useSupabase) {
@@ -1026,11 +1028,19 @@
 
       // ── DYNAMIC SETTINGS (from Supabase warehouse_settings table) ──
       const [sysSettings, setSysSettings] = useState({});
+      const _prevSettingsJson = useRef("{}");
       const settingsVal = (key, fallback) => {
         const v = sysSettings[key];
         if (v === undefined || v === null) return fallback;
         const n = Number(v);
         return isNaN(n) ? v : n;
+      };
+      const _updateSysSettings = (s) => {
+        const json = JSON.stringify(s || {});
+        if (json !== _prevSettingsJson.current) {
+          _prevSettingsJson.current = json;
+          setSysSettings(s || {});
+        }
       };
       // Superuser settings screen state
       const [editSettings, setEditSettings] = useState({});
@@ -1224,7 +1234,7 @@
           if (adapter.loadSettings) {
             try {
               const s = await adapter.loadSettings();
-              setSysSettings(s || {});
+              _updateSysSettings(s);
             } catch(e) { console.error("loadSettings error:", e); }
           }
           setLoading(false);
@@ -3456,7 +3466,7 @@ ${sortedCompleted.map(r => {
               await adapterRef.current.saveSetting(key, curEdit[key], userName);
             }
             const fresh = await adapterRef.current.loadSettings();
-            setSysSettings(fresh || {});
+            _updateSysSettings(fresh);
             setDirtyKeys({});
             setSettingsSaved(true);
             setTimeout(() => setSettingsSaved(false), 3000);
