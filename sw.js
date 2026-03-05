@@ -6,7 +6,7 @@
 // 2. Upload both WarehouseLineFeeder.html + sw.js
 // 3. Devices auto-update next time the user switches back to the tab
 
-const APP_VERSION = 'v17';
+const APP_VERSION = 'v19';
 const CACHE_NAME  = 'warehouse-pwa-' + APP_VERSION;
 
 const APP_SHELL = [
